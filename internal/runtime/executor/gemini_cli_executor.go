@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	geminiauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/gemini"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
@@ -33,17 +34,9 @@ import (
 )
 
 const (
-	codeAssistEndpoint      = "https://cloudcode-pa.googleapis.com"
-	codeAssistVersion       = "v1internal"
-	geminiOAuthClientID     = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
-	geminiOAuthClientSecret = "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"
+	codeAssistEndpoint = "https://cloudcode-pa.googleapis.com"
+	codeAssistVersion  = "v1internal"
 )
-
-var geminiOAuthScopes = []string{
-	"https://www.googleapis.com/auth/cloud-platform",
-	"https://www.googleapis.com/auth/userinfo.email",
-	"https://www.googleapis.com/auth/userinfo.profile",
-}
 
 // GeminiCLIExecutor talks to the Cloud Code Assist endpoint using OAuth credentials from auth metadata.
 type GeminiCLIExecutor struct {
@@ -527,8 +520,8 @@ func (e *GeminiCLIExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.
 
 	// The loop variable attemptModel is only used as the concrete model id sent to the upstream
 	// Gemini CLI endpoint when iterating fallback variants.
-	for range models {
-		payload := sdktranslator.TranslateRequest(from, to, baseModel, req.Payload, false)
+	for _, attemptModel := range models {
+		payload := sdktranslator.TranslateRequest(from, to, attemptModel, req.Payload, false)
 
 		payload, err = thinking.ApplyThinking(payload, req.Model, from.String(), to.String(), e.Identifier())
 		if err != nil {
@@ -558,7 +551,7 @@ func (e *GeminiCLIExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.
 		}
 		reqHTTP.Header.Set("Content-Type", "application/json")
 		reqHTTP.Header.Set("Authorization", "Bearer "+tok.AccessToken)
-		applyGeminiCLIHeaders(reqHTTP, baseModel)
+		applyGeminiCLIHeaders(reqHTTP, attemptModel)
 		reqHTTP.Header.Set("Accept", "application/json")
 		util.ApplyCustomHeadersFromAttrs(reqHTTP, auth.Attributes)
 		helps.RecordAPIRequest(ctx, e.cfg, helps.UpstreamRequestLog{
@@ -660,9 +653,9 @@ func prepareGeminiCLITokenSource(ctx context.Context, cfg *config.Config, auth *
 	base, token := buildToken(metadata)
 
 	conf := &oauth2.Config{
-		ClientID:     geminiOAuthClientID,
-		ClientSecret: geminiOAuthClientSecret,
-		Scopes:       geminiOAuthScopes,
+		ClientID:     geminiauth.ClientID,
+		ClientSecret: geminiauth.ClientSecret,
+		Scopes:       geminiauth.Scopes,
 		Endpoint:     google.Endpoint,
 	}
 
@@ -717,12 +710,14 @@ func updateGeminiCLITokenMetadata(auth *cliproxyauth.Auth, base map[string]any, 
 		}
 		return
 	}
-	if auth.Metadata == nil {
-		auth.Metadata = make(map[string]any)
+	newMeta := make(map[string]any, len(auth.Metadata)+len(fields))
+	for k, v := range auth.Metadata {
+		newMeta[k] = v
 	}
 	for k, v := range fields {
-		auth.Metadata[k] = v
+		newMeta[k] = v
 	}
+	auth.Metadata = newMeta
 }
 
 func buildGeminiTokenMap(base map[string]any, tok *oauth2.Token) map[string]any {
