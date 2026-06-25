@@ -255,6 +255,12 @@ func (g *GeminiAuth) getTokenFromWeb(ctx context.Context, config *oauth2.Config,
 		}
 	}()
 
+	defer func() {
+		if err := server.Shutdown(ctx); err != nil {
+			log.Errorf("Failed to shut down server: %v", err)
+		}
+	}()
+
 	// Open the authorization URL in the user's browser.
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"))
 
@@ -354,11 +360,6 @@ waitForCallback:
 		case <-timeoutTimer.C:
 			return nil, fmt.Errorf("oauth flow timed out")
 		}
-	}
-
-	// Shutdown the server.
-	if err := server.Shutdown(ctx); err != nil {
-		log.Errorf("Failed to shut down server: %v", err)
 	}
 
 	// Exchange the authorization code for a token.
