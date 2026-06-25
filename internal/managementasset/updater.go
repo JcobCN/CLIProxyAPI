@@ -26,8 +26,9 @@ import (
 )
 
 const (
-	defaultManagementReleaseURL  = "https://api.github.com/repos/router-for-me/Cli-Proxy-API-Management-Center/releases/latest"
+	defaultManagementReleaseURL  = "https://api.github.com/repos/router-for-me/Cli-Proxy-API-Management-Center/releases/tags/v1.17.0"
 	defaultManagementFallbackURL = "https://cpamc.router-for.me/"
+	defaultManagementReleaseTag  = "v1.17.0"
 	managementAssetName          = "management.html"
 	httpUserAgent                = "CLIProxyAPI-management-updater"
 	managementSyncMinInterval    = 30 * time.Second
@@ -323,9 +324,12 @@ func resolveReleaseURL(repo string) string {
 	host := strings.ToLower(parsed.Host)
 	parsed.Path = strings.TrimSuffix(parsed.Path, "/")
 
+	releaseSuffix := "/releases/tags/" + defaultManagementReleaseTag
+
 	if host == "api.github.com" {
-		if !strings.HasSuffix(strings.ToLower(parsed.Path), "/releases/latest") {
-			parsed.Path = parsed.Path + "/releases/latest"
+		lp := strings.ToLower(parsed.Path)
+		if !strings.Contains(lp, "/releases/") {
+			parsed.Path = parsed.Path + releaseSuffix
 		}
 		return parsed.String()
 	}
@@ -334,7 +338,7 @@ func resolveReleaseURL(repo string) string {
 		parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
 		if len(parts) >= 2 && parts[0] != "" && parts[1] != "" {
 			repoName := strings.TrimSuffix(parts[1], ".git")
-			return fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", parts[0], repoName)
+			return fmt.Sprintf("https://api.github.com/repos/%s/%s%s", parts[0], repoName, releaseSuffix)
 		}
 	}
 
