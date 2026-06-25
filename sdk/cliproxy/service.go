@@ -988,6 +988,7 @@ func baselineExecutorAuths() []*coreauth.Auth {
 		"claude",
 		"gemini",
 		"vertex",
+		"gemini-cli",
 		"aistudio",
 		"antigravity",
 		"kimi",
@@ -1062,6 +1063,8 @@ func (s *Service) registerExecutorForAuth(a *coreauth.Auth, forceReplace bool) {
 		return
 	}
 	switch strings.ToLower(a.Provider) {
+	case "gemini-cli":
+		s.coreManager.RegisterExecutor(executor.NewGeminiCLIExecutor(s.cfg))
 	case "gemini":
 		s.coreManager.RegisterExecutor(executor.NewGeminiExecutor(s.cfg))
 	case "vertex":
@@ -1412,6 +1415,7 @@ func forceHomeRuntimeConfig(cfg *config.Config) {
 	cfg.DisableCooling = true
 	cfg.SaveCooldownStatus = false
 	cfg.WebsocketAuth = false
+	cfg.EnableGeminiCLIEndpoint = false
 	cfg.RemoteManagement.AllowRemote = false
 	cfg.RemoteManagement.DisableControlPanel = true
 }
@@ -1913,6 +1917,12 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 		GlobalModelRegistry().UnregisterClient(a.ID)
 		return
 	}
+	if a.Attributes != nil {
+		if v := strings.TrimSpace(a.Attributes["gemini_virtual_primary"]); strings.EqualFold(v, "true") {
+			GlobalModelRegistry().UnregisterClient(a.ID)
+			return
+		}
+	}
 	authKind := a.AuthKind()
 	// Unregister legacy client ID (if present) to avoid double counting
 	if a.Runtime != nil {
@@ -1940,6 +1950,9 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 	}
 	var models []*ModelInfo
 	switch provider {
+	case "gemini-cli":
+		models = registry.GetGeminiCLIModels()
+		models = applyExcludedModels(models, excluded)
 	case "gemini":
 		models = registry.GetGeminiModels()
 		if entry := s.resolveConfigGeminiKey(a); entry != nil {
