@@ -531,7 +531,18 @@ func ParseOpenAIStreamUsage(line []byte) (usage.Detail, bool) {
 	if !hasOpenAIStyleUsageTokenFields(usageNode) {
 		return usage.Detail{}, false
 	}
-	return parseOpenAIStyleUsageNode(usageNode), true
+	detail := parseOpenAIStyleUsageNode(usageNode)
+	// OpenAI-compatible providers often include a "usage" object with all-zero
+	// values in every intermediate SSE chunk; the real token counts appear only
+	// in the terminal chunk (the one with finish_reason set).  Because the
+	// upstream reporter uses sync.Once, publishing a zero-token Detail from an
+	// intermediate chunk would lock out the real counts forever.  Skip chunks
+	// whose usage is entirely zero and let EnsurePublished handle the
+	// all-zero edge-case when the stream ends.
+	if !hasNonZeroTokenUsage(detail) {
+		return usage.Detail{}, false
+	}
+	return detail, true
 }
 
 func ParseClaudeUsage(data []byte) usage.Detail {
