@@ -129,7 +129,7 @@ func (h *BaseAPIHandler) ForwardStream(c *gin.Context, flusher http.Flusher, can
 			maxDurationErr := errors.New("streaming response exceeded max duration")
 			if opts.WriteTerminalError != nil {
 				opts.WriteTerminalError(&interfaces.ErrorMessage{
-					StatusCode: http.StatusGatewayTimeout,
+					StatusCode: http.StatusServiceUnavailable,
 					Error:      maxDurationErr,
 				})
 			}
