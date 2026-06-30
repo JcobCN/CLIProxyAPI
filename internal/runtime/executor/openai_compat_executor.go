@@ -20,6 +20,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/usage"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/sjson"
@@ -393,11 +394,14 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *cliproxy
 		scanner := bufio.NewScanner(httpResp.Body)
 		scanner.Buffer(nil, 52_428_800) // 50MB
 		var param any
+		var lastUsage usage.Detail
+		var usageFound bool
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			helps.AppendAPIResponseChunk(ctx, e.cfg, line)
 			if detail, ok := helps.ParseOpenAIStreamUsage(line); ok {
-				reporter.Publish(ctx, detail)
+				lastUsage = detail
+				usageFound = true
 			}
 			trimmedLine := bytes.TrimSpace(line)
 			if len(trimmedLine) == 0 {
@@ -451,6 +455,14 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *cliproxy
 					return
 				}
 			}
+		}
+		// Publish the final usage (last seen chunk has the terminal token counts).
+		// Publishing during the loop is unsafe: some OpenAI-compatible providers
+		// (e.g. Nvidia/stepfun) include a usage object with non-zero prompt_tokens
+		// but zero completion_tokens in the very first chunk, and reporter.Publish
+		// uses sync.Once — the first call locks out the real counts forever.
+		if usageFound {
+			reporter.Publish(ctx, lastUsage)
 		}
 		// Ensure we record the request if no usage chunk was ever seen
 		reporter.EnsurePublished(ctx)
