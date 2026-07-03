@@ -258,7 +258,7 @@ func (h *Handler) resolveTokenForAuth(ctx context.Context, auth *coreauth.Auth) 
 		token, errToken := h.refreshGeminiOAuthAccessToken(ctx, auth)
 		return token, errToken
 	}
-	if provider == "antigravity" {
+	if strings.EqualFold(strings.TrimSpace(auth.Provider), "antigravity") {
 		token, errToken := h.refreshAntigravityOAuthAccessToken(ctx, auth)
 		return token, errToken
 	}
