@@ -720,6 +720,9 @@ func (h *BaseAPIHandler) executeWithAuthManager(ctx context.Context, handlerType
 }
 
 func (h *BaseAPIHandler) executeWithAuthManagerFormats(ctx context.Context, entryProtocol, exitProtocol, modelName string, rawJSON []byte, alt string, allowImageModel bool, execOptions modelExecutionOptions) ([]byte, http.Header, *interfaces.ErrorMessage) {
+	if errMsg := h.blockedModelError(ctx, modelName); errMsg != nil {
+		return nil, nil, errMsg
+	}
 	originalRequestedModel := modelName
 	routeDecision := h.applyModelRouter(ctx, entryProtocol, modelName, rawJSON, false, execOptions)
 	responseProtocol := modelExecutionResponseProtocol(entryProtocol, exitProtocol)
@@ -787,6 +790,9 @@ func (h *BaseAPIHandler) ExecuteCountWithAuthManager(ctx context.Context, handle
 }
 
 func (h *BaseAPIHandler) executeCountWithAuthManager(ctx context.Context, handlerType, modelName string, rawJSON []byte, alt string, execOptions modelExecutionOptions) ([]byte, http.Header, *interfaces.ErrorMessage) {
+	if errMsg := h.blockedModelError(ctx, modelName); errMsg != nil {
+		return nil, nil, errMsg
+	}
 	originalRequestedModel := modelName
 	routeDecision := h.applyModelRouter(ctx, handlerType, modelName, rawJSON, false, execOptions)
 	if routeDecision.ExecutorPluginID != "" {
@@ -1107,6 +1113,12 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 }
 
 func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context, entryProtocol, exitProtocol, modelName string, rawJSON []byte, alt string, allowImageModel bool, execOptions modelExecutionOptions) (<-chan []byte, http.Header, <-chan *interfaces.ErrorMessage) {
+	if errMsg := h.blockedModelError(ctx, modelName); errMsg != nil {
+		errChan := make(chan *interfaces.ErrorMessage, 1)
+		errChan <- errMsg
+		close(errChan)
+		return nil, nil, errChan
+	}
 	originalRequestedModel := modelName
 	routeDecision := h.applyModelRouter(ctx, entryProtocol, modelName, rawJSON, true, execOptions)
 	responseProtocol := modelExecutionResponseProtocol(entryProtocol, exitProtocol)
@@ -1450,6 +1462,106 @@ func (h *BaseAPIHandler) getRequestDetails(modelName string) (providers []string
 // providersForExecution resolves the providers and normalized model for a request. When a model
 // router selected a built-in provider, it skips model->provider resolution and uses the router's
 // provider (with an optional target model); otherwise it falls back to the registry-based path.
+// blockedModelError returns an error when the request matches a configured
+// blocked-model rule for the requesting client API key. It returns nil when no
+// rule matches or no rules are configured.
+func (h *BaseAPIHandler) blockedModelError(ctx context.Context, modelName string) *interfaces.ErrorMessage {
+	if h == nil || h.Cfg == nil || len(h.Cfg.BlockedModels) == 0 {
+		return nil
+	}
+	apiKey := userAPIKeyFromContext(ctx)
+	modelName = strings.ToLower(strings.TrimSpace(modelName))
+	baseModel := strings.ToLower(strings.TrimSpace(thinking.ParseSuffix(modelName).ModelName))
+	for i := range h.Cfg.BlockedModels {
+		rule := &h.Cfg.BlockedModels[i]
+		if !blockedModelMatchesKey(rule.APIKeys, apiKey) {
+			continue
+		}
+		for _, pattern := range rule.Models {
+			if blockedPatternMatch(pattern, modelName) || (baseModel != "" && blockedPatternMatch(pattern, baseModel)) {
+				statusCode := rule.StatusCode
+				if statusCode == 0 {
+					statusCode = http.StatusBadRequest
+				}
+				message := rule.Message
+				if message == "" {
+					message = fmt.Sprintf("model %s is blocked for this API key", modelName)
+				}
+				return &interfaces.ErrorMessage{StatusCode: statusCode, Error: errors.New(message)}
+			}
+		}
+	}
+	return nil
+}
+
+// userAPIKeyFromContext extracts the authenticated client API key from the
+// embedded Gin context. It returns an empty string when unavailable.
+func userAPIKeyFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	ginCtx, ok := ctx.Value("gin").(*gin.Context)
+	if !ok || ginCtx == nil {
+		return ""
+	}
+	raw, ok := ginCtx.Get("userApiKey")
+	if !ok {
+		return ""
+	}
+	key, _ := raw.(string)
+	return strings.ToLower(strings.TrimSpace(key))
+}
+
+// blockedModelMatchesKey reports whether a rule's API key list matches the
+// requesting key. An empty list matches any key.
+func blockedModelMatchesKey(patterns []string, apiKey string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+	for _, pattern := range patterns {
+		if blockedPatternMatch(pattern, apiKey) {
+			return true
+		}
+	}
+	return false
+}
+
+// blockedPatternMatch matches a wildcard pattern against a value using '*'
+// for any substring, mirroring the routing wildcard semantics in matchWildcard.
+func blockedPatternMatch(pattern, value string) bool {
+	if pattern == "" {
+		return false
+	}
+	if !strings.Contains(pattern, "*") {
+		return pattern == value
+	}
+	parts := strings.Split(pattern, "*")
+	if prefix := parts[0]; prefix != "" {
+		if !strings.HasPrefix(value, prefix) {
+			return false
+		}
+		value = value[len(prefix):]
+	}
+	if suffix := parts[len(parts)-1]; suffix != "" {
+		if !strings.HasSuffix(value, suffix) {
+			return false
+		}
+		value = value[:len(value)-len(suffix)]
+	}
+	for i := 1; i < len(parts)-1; i++ {
+		segment := parts[i]
+		if segment == "" {
+			continue
+		}
+		idx := strings.Index(value, segment)
+		if idx < 0 {
+			return false
+		}
+		value = value[idx+len(segment):]
+	}
+	return true
+}
+
 func (h *BaseAPIHandler) providersForExecution(modelName, originalRequestedModel string, allowImageModel bool, routeDecision modelRouteDecision) ([]string, string, *interfaces.ErrorMessage) {
 	if routeDecision.Provider != "" {
 		normalizedModel := originalRequestedModel

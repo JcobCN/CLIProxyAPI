@@ -41,6 +41,24 @@ api-keys:
   - "your-api-key-2"
   - "your-api-key-3"
 
+# Reject model requests for specific client API keys before any routing or upstream call.
+# Each rule matches a client API key (wildcards supported; empty api-keys matches any key)
+# against model name patterns. When matched, the request returns the configured status
+# code (default 400) with the configured message.
+# blocked-models:
+#   - api-keys:
+#       - "your-api-key-1"
+#     models:
+#       - "gpt-5-codex"     # exact match
+#       - "gemini-*"        # wildcard matching prefix
+#       - "*-thinking"      # wildcard matching suffix
+#     status-code: 400      # optional, default 400
+#     message: "This model is not available for your API key"
+#   - api-keys:             # empty api-keys blocks any client key
+#     models:
+#       - "secret-*"
+#     status-code: 403
+
 # Enable debug logging
 debug: false
 

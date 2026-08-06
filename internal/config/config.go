@@ -806,6 +806,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Validate raw payload rules and drop invalid entries.
 	cfg.SanitizePayloadRules()
 
+	// Normalize blocked-model rules.
+	cfg.SanitizeBlockedModels()
+
 	// Return the populated configuration struct.
 	return &cfg, nil
 }
@@ -843,6 +846,46 @@ func (cfg *Config) SanitizePayloadRules() {
 	}
 	cfg.Payload.DefaultRaw = sanitizePayloadRawRules(cfg.Payload.DefaultRaw, "default-raw")
 	cfg.Payload.OverrideRaw = sanitizePayloadRawRules(cfg.Payload.OverrideRaw, "override-raw")
+}
+
+// SanitizeBlockedModels normalizes blocked-model rules: trims/lowercases API keys and
+// model patterns, drops rules with no models, and validates the status code.
+func (cfg *Config) SanitizeBlockedModels() {
+	if cfg == nil {
+		return
+	}
+	rules := cfg.BlockedModels
+	if len(rules) == 0 {
+		return
+	}
+	out := make([]BlockedModelRule, 0, len(rules))
+	for i := range rules {
+		rule := rules[i]
+		rule.APIKeys = normalizeStringList(rule.APIKeys)
+		rule.Models = normalizeStringList(rule.Models)
+		rule.Message = strings.TrimSpace(rule.Message)
+		if len(rule.Models) == 0 {
+			log.WithField("rule_index", i+1).Warn("blocked-model rule dropped: no models configured")
+			continue
+		}
+		if rule.StatusCode < 400 || rule.StatusCode > 599 {
+			rule.StatusCode = 0
+		}
+		out = append(out, rule)
+	}
+	cfg.BlockedModels = out
+}
+
+func normalizeStringList(items []string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.ToLower(strings.TrimSpace(item))
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return out
 }
 
 func sanitizePayloadRawRules(rules []PayloadRule, section string) []PayloadRule {

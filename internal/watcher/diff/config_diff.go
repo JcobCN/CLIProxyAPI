@@ -112,6 +112,9 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 	if !reflect.DeepEqual(oldCfg.Payload, newCfg.Payload) {
 		changes = appendPayloadConfigChanges(changes, oldCfg.Payload, newCfg.Payload)
 	}
+	if blockedModelsChanged(oldCfg.BlockedModels, newCfg.BlockedModels) {
+		changes = append(changes, fmt.Sprintf("blocked-models: updated (%d -> %d entries)", len(oldCfg.BlockedModels), len(newCfg.BlockedModels)))
+	}
 
 	// API keys (redacted) and counts
 	if len(oldCfg.APIKeys) != len(newCfg.APIKeys) {
@@ -388,4 +391,13 @@ func formatProxyURL(raw string) string {
 		return host
 	}
 	return scheme + "://" + host
+}
+
+// blockedModelsChanged reports whether blocked-models rules changed, treating
+// nil and empty slices as equivalent.
+func blockedModelsChanged(old, new []config.BlockedModelRule) bool {
+	if len(old) == 0 && len(new) == 0 {
+		return false
+	}
+	return !reflect.DeepEqual(old, new)
 }

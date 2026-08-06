@@ -49,6 +49,12 @@ type SDKConfig struct {
 	// APIKeys is a list of keys for authenticating clients to this proxy server.
 	APIKeys []string `yaml:"api-keys" json:"api-keys"`
 
+	// BlockedModels defines rules that reject model requests matching a client API key.
+	// Each rule matches a set of API keys (wildcards supported; empty matches any key)
+	// against model name patterns. When all match, the request is rejected with the
+	// configured status code (default 400) before any routing or upstream call occurs.
+	BlockedModels []BlockedModelRule `yaml:"blocked-models,omitempty" json:"blocked-models,omitempty"`
+
 	// PassthroughHeaders controls whether upstream response headers are forwarded to downstream clients.
 	// Default is false (disabled).
 	PassthroughHeaders bool `yaml:"passthrough-headers" json:"passthrough-headers"`
@@ -61,7 +67,25 @@ type SDKConfig struct {
 	NonStreamKeepAliveInterval int `yaml:"nonstream-keepalive-interval,omitempty" json:"nonstream-keepalive-interval,omitempty"`
 }
 
-// StreamingConfig holds server streaming behavior configuration.
+// BlockedModelRule rejects model requests matching a client API key and model pattern.
+type BlockedModelRule struct {
+	// APIKeys lists client API keys this rule applies to. Supports wildcard patterns.
+	// When empty, the rule matches any API key.
+	APIKeys []string `yaml:"api-keys,omitempty" json:"api-keys,omitempty"`
+
+	// Models lists model name patterns (wildcards supported, e.g. "gpt-*").
+	Models []string `yaml:"models" json:"models"`
+
+	// StatusCode is the HTTP status code returned for a blocked request.
+	// Defaults to 400 when unset or invalid.
+	StatusCode int `yaml:"status-code,omitempty" json:"status-code,omitempty"`
+
+	// Message is the error message returned to the client.
+	// Defaults to a generic message when empty.
+	Message string `yaml:"message,omitempty" json:"message,omitempty"`
+}
+
+// StreamingConfig holds the streaming behavior configuration.
 type StreamingConfig struct {
 	// KeepAliveSeconds controls how often the server emits SSE heartbeats (": keep-alive\n\n").
 	// <= 0 disables keep-alives. Default is 0.
