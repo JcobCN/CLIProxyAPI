@@ -26,9 +26,9 @@ import (
 )
 
 const (
-	defaultManagementReleaseURL  = "https://api.github.com/repos/router-for-me/Cli-Proxy-API-Management-Center/releases/tags/v1.17.0"
+	defaultManagementReleaseURL  = "https://api.github.com/repos/JcobCN/Cli-Proxy-API-Management-Center/releases/tags/v1.17.8-gemini.1"
 	defaultManagementFallbackURL = "https://cpamc.router-for.me/"
-	defaultManagementReleaseTag  = "v1.17.0"
+	defaultManagementReleaseTag  = "v1.17.8-gemini.1"
 	managementAssetName          = "management.html"
 	httpUserAgent                = "CLIProxyAPI-management-updater"
 	managementSyncMinInterval    = 30 * time.Second
@@ -354,9 +354,8 @@ func fetchLatestAsset(ctx context.Context, client *http.Client, releaseURL strin
 		"Accept":     "application/vnd.github+json",
 		"User-Agent": httpUserAgent,
 	}
-	gitURL := strings.ToLower(strings.TrimSpace(os.Getenv("GITSTORE_GIT_URL")))
-	if tok := strings.TrimSpace(os.Getenv("GITSTORE_GIT_TOKEN")); tok != "" && strings.Contains(gitURL, "github.com") {
-		headers["Authorization"] = "Bearer " + tok
+	if token := util.ResolveGitHubToken(); token != "" {
+		headers["Authorization"] = "Bearer " + token
 	}
 
 	data, err := httpfetch.GetBytes(ctx, client, releaseURL, headers, 0)

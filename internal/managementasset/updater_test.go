@@ -1,10 +1,88 @@
 package managementasset
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 )
+
+func TestResolveReleaseURLDefaultsToPinnedForkRelease(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "empty", input: "", want: defaultManagementReleaseURL},
+		{name: "fork repository", input: "https://github.com/JcobCN/Cli-Proxy-API-Management-Center", want: defaultManagementReleaseURL},
+		{name: "upstream repository is normalized to pinned tag", input: "https://github.com/router-for-me/Cli-Proxy-API-Management-Center", want: "https://api.github.com/repos/router-for-me/Cli-Proxy-API-Management-Center/releases/tags/v1.17.8-gemini.1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveReleaseURL(tt.input); got != tt.want {
+				t.Fatalf("resolveReleaseURL(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFetchLatestAssetSetsGitHubAuthorization(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "asset-token")
+	t.Setenv("GITSTORE_GIT_TOKEN", "")
+	t.Setenv("GITSTORE_GIT_URL", "")
+
+	var authorization string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		authorization = req.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"assets":[{"name":"management.html","browser_download_url":"https://example.com/management.html","digest":"sha256:abc123"}]}`))
+	}))
+	defer server.Close()
+
+	asset, remoteHash, err := fetchLatestAsset(t.Context(), server.Client(), server.URL)
+	if err != nil {
+		t.Fatalf("fetchLatestAsset() error = %v", err)
+	}
+	if authorization != "Bearer asset-token" {
+		t.Fatalf("Authorization = %q, want %q", authorization, "Bearer asset-token")
+	}
+	if asset == nil || asset.Name != managementAssetName {
+		t.Fatalf("asset = %#v, want %q", asset, managementAssetName)
+	}
+	if remoteHash != "abc123" {
+		t.Fatalf("remoteHash = %q, want %q", remoteHash, "abc123")
+	}
+}
+
+func TestFetchLatestAssetOmitsAuthorizationWithoutToken(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("github_token", "")
+	t.Setenv("GITSTORE_GIT_TOKEN", "")
+	t.Setenv("GITSTORE_GIT_URL", "")
+
+	var authorization string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		authorization = req.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"assets":[{"name":"management.html","browser_download_url":"https://example.com/management.html","digest":"sha256:abc123"}]}`))
+	}))
+	defer server.Close()
+
+	asset, remoteHash, err := fetchLatestAsset(t.Context(), server.Client(), server.URL)
+	if err != nil {
+		t.Fatalf("fetchLatestAsset() error = %v", err)
+	}
+	if authorization != "" {
+		t.Fatalf("Authorization = %q, want empty", authorization)
+	}
+	if asset == nil || asset.Name != managementAssetName {
+		t.Fatalf("asset = %#v, want %q", asset, managementAssetName)
+	}
+	if remoteHash != "abc123" {
+		t.Fatalf("remoteHash = %q, want %q", remoteHash, "abc123")
+	}
+}
 
 func TestAutoUpdateSkipReason(t *testing.T) {
 	tests := []struct {

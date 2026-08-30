@@ -132,7 +132,49 @@ func TestFileSynthesizer_Synthesize_ValidAuthFile(t *testing.T) {
 	}
 }
 
-func TestFileSynthesizer_Synthesize_GeminiProviderMappedToCLI(t *testing.T) {
+func TestFileSynthesizer_Synthesize_LegacyKimiFingerprintProfile(t *testing.T) {
+	tempDir := t.TempDir()
+	authData := map[string]any{
+		"type":                "kimi",
+		"access_token":        "kimi-access-token",
+		"refresh_token":       "kimi-refresh-token",
+		"fingerprint-profile": "claude-code-cli",
+	}
+	data, errMarshal := json.Marshal(authData)
+	if errMarshal != nil {
+		t.Fatalf("marshal kimi auth: %v", errMarshal)
+	}
+	if err := os.WriteFile(filepath.Join(tempDir, "kimi-auth.json"), data, 0644); err != nil {
+		t.Fatalf("failed to write kimi auth file: %v", err)
+	}
+
+	auths, err := NewFileSynthesizer().Synthesize(&SynthesisContext{
+		Config:      &config.Config{},
+		AuthDir:     tempDir,
+		Now:         time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		IDGenerator: NewStableIDGenerator(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(auths) != 1 {
+		t.Fatalf("expected 1 auth, got %d", len(auths))
+	}
+	if auths[0].Provider != "kimi" {
+		t.Fatalf("provider = %q, want kimi", auths[0].Provider)
+	}
+	if got := auths[0].Attributes["fingerprint_profile"]; got != "claude-code-cli" {
+		t.Fatalf("attributes fingerprint_profile = %q, want claude-code-cli", got)
+	}
+	if got, _ := auths[0].Metadata["fingerprint_profile"].(string); got != "claude-code-cli" {
+		t.Fatalf("metadata fingerprint_profile = %q, want claude-code-cli", got)
+	}
+	if _, exists := auths[0].Metadata["fingerprint-profile"]; exists {
+		t.Fatalf("legacy fingerprint-profile was not normalized: %#v", auths[0].Metadata)
+	}
+}
+
+func TestFileSynthesizer_Synthesize_ParsesGeminiProviderFile(t *testing.T) {
 	tempDir := t.TempDir()
 
 	authData := map[string]any{
@@ -158,10 +200,17 @@ func TestFileSynthesizer_Synthesize_GeminiProviderMappedToCLI(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(auths) != 1 {
-		t.Fatalf("expected 1 auth for gemini provider, got %d", len(auths))
+		t.Fatalf("expected one Gemini auth, got %d", len(auths))
 	}
-	if auths[0].Provider != "gemini-cli" {
-		t.Errorf("expected provider gemini-cli, got %s", auths[0].Provider)
+	auth := auths[0]
+	if auth.Provider != "gemini-cli" {
+		t.Fatalf("provider = %q, want gemini-cli", auth.Provider)
+	}
+	if got := auth.Metadata["email"]; got != "gemini@example.com" {
+		t.Fatalf("metadata email = %#v, want gemini@example.com", got)
+	}
+	if got := auth.Attributes[coreauth.AttributeSourceBackend]; got != coreauth.AuthSourceFile {
+		t.Fatalf("source backend = %q, want file", got)
 	}
 }
 
@@ -205,7 +254,10 @@ func TestSynthesizeAuthFileExpandsPluginMultiAuths(t *testing.T) {
 		}),
 	}
 
-	auths := SynthesizeAuthFile(ctx, fullPath, raw)
+	auths, errSynthesize := SynthesizeAuthFile(ctx, fullPath, raw)
+	if errSynthesize != nil {
+		t.Fatalf("SynthesizeAuthFile() error = %v", errSynthesize)
+	}
 	if len(auths) != 2 {
 		t.Fatalf("SynthesizeAuthFile() len = %d, want two plugin auths", len(auths))
 	}
@@ -234,6 +286,64 @@ func TestSynthesizeAuthFileExpandsPluginMultiAuths(t *testing.T) {
 	}
 }
 
+func TestSynthesizeAuthFileSkipsInvalidPluginAuthWeight(t *testing.T) {
+	tempDir := t.TempDir()
+	fullPath := filepath.Join(tempDir, "plugin.json")
+	ctx := &SynthesisContext{
+		Config:  &config.Config{},
+		AuthDir: tempDir,
+		Now:     time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC),
+		PluginAuthParser: multiAuthParserFunc(func(context.Context, pluginapi.AuthParseRequest) ([]*coreauth.Auth, bool, error) {
+			return []*coreauth.Auth{
+				{ID: "invalid", Provider: "plugin", Attributes: map[string]string{coreauth.AttributeWeight: "1.5"}},
+				{ID: "valid", Provider: "plugin", Attributes: map[string]string{coreauth.AttributeWeight: "0"}},
+			}, true, nil
+		}),
+	}
+
+	auths, errSynthesize := SynthesizeAuthFile(ctx, fullPath, []byte(`{"type":"plugin"}`))
+	if errSynthesize != nil {
+		t.Fatalf("SynthesizeAuthFile() error = %v", errSynthesize)
+	}
+	if len(auths) != 1 || auths[0].ID != "valid" {
+		t.Fatalf("SynthesizeAuthFile() auths = %#v, want only valid zero-weight auth", auths)
+	}
+}
+
+func TestSynthesizeAuthFileAppliesSourceDisabledToPluginMultiAuths(t *testing.T) {
+	tempDir := t.TempDir()
+	fullPath := filepath.Join(tempDir, "geminicli.json")
+	raw := []byte(`{"type":"gemini-cli","disabled":true}`)
+
+	ctx := &SynthesisContext{
+		Config:  &config.Config{},
+		AuthDir: tempDir,
+		Now:     time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC),
+		PluginAuthParser: multiAuthParserFunc(func(context.Context, pluginapi.AuthParseRequest) ([]*coreauth.Auth, bool, error) {
+			return []*coreauth.Auth{
+				{ID: "geminicli.json", Provider: "gemini-cli", Metadata: map[string]any{"type": "gemini-cli"}},
+				{ID: "geminicli-project-a.json", Provider: "gemini-cli", Metadata: map[string]any{"type": "gemini-cli", "project_id": "project-a"}},
+			}, true, nil
+		}),
+	}
+
+	auths, errSynthesize := SynthesizeAuthFile(ctx, fullPath, raw)
+	if errSynthesize != nil {
+		t.Fatalf("SynthesizeAuthFile() error = %v", errSynthesize)
+	}
+	if len(auths) != 2 {
+		t.Fatalf("SynthesizeAuthFile() len = %d, want two plugin auths", len(auths))
+	}
+	for _, auth := range auths {
+		if !auth.Disabled || auth.Status != coreauth.StatusDisabled {
+			t.Fatalf("auth %s disabled/status = %v/%s, want disabled", auth.ID, auth.Disabled, auth.Status)
+		}
+		if got, _ := auth.Metadata["disabled"].(bool); !got {
+			t.Fatalf("auth %s metadata disabled = %#v, want true", auth.ID, auth.Metadata["disabled"])
+		}
+	}
+}
+
 func TestSynthesizeAuthFilePluginHandledEmptySuppressesBuiltin(t *testing.T) {
 	tempDir := t.TempDir()
 	fullPath := filepath.Join(tempDir, "codex.json")
@@ -248,7 +358,10 @@ func TestSynthesizeAuthFilePluginHandledEmptySuppressesBuiltin(t *testing.T) {
 		}),
 	}
 
-	auths := SynthesizeAuthFile(ctx, fullPath, raw)
+	auths, errSynthesize := SynthesizeAuthFile(ctx, fullPath, raw)
+	if errSynthesize != nil {
+		t.Fatalf("SynthesizeAuthFile() error = %v", errSynthesize)
+	}
 	if len(auths) != 0 {
 		t.Fatalf("SynthesizeAuthFile() len = %d, want plugin-handled empty result", len(auths))
 	}
@@ -477,6 +590,63 @@ func TestFileSynthesizer_Synthesize_PriorityParsing(t *testing.T) {
 	}
 }
 
+func TestFileSynthesizer_Synthesize_WeightParsing(t *testing.T) {
+	tests := []struct {
+		name   string
+		weight any
+		want   string
+		valid  bool
+	}{
+		{name: "number", weight: 5, want: "5", valid: true},
+		{name: "numeric string", weight: " 3 ", want: "3", valid: true},
+		{name: "zero excludes", weight: 0, want: "0", valid: true},
+		{name: "negative excludes", weight: -5, want: "0", valid: true},
+		{name: "maximum", weight: 1000000, want: "1000000", valid: true},
+		{name: "fraction rejected", weight: 1.5},
+		{name: "above maximum rejected", weight: 1000001},
+		{name: "overflow rejected", weight: "9223372036854775808"},
+		{name: "invalid string", weight: "heavy"},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			data, errMarshal := json.Marshal(map[string]any{"type": "claude", "weight": testCase.weight})
+			if errMarshal != nil {
+				t.Fatalf("json.Marshal() error = %v", errMarshal)
+			}
+			if errWrite := os.WriteFile(filepath.Join(tempDir, "auth.json"), data, 0644); errWrite != nil {
+				t.Fatalf("WriteFile() error = %v", errWrite)
+			}
+			ctx := &SynthesisContext{
+				Config:      &config.Config{},
+				AuthDir:     tempDir,
+				Now:         time.Now(),
+				IDGenerator: NewStableIDGenerator(),
+			}
+			auths, errSynthesize := NewFileSynthesizer().Synthesize(ctx)
+			if errSynthesize != nil {
+				t.Fatalf("Synthesize() error = %v", errSynthesize)
+			}
+			if !testCase.valid {
+				if len(auths) != 0 {
+					t.Fatalf("auth count = %d, want invalid credential skipped", len(auths))
+				}
+				if _, errDirect := SynthesizeAuthFile(ctx, filepath.Join(tempDir, "auth.json"), data); errDirect == nil {
+					t.Fatal("SynthesizeAuthFile() error = nil, want weight validation error")
+				}
+				return
+			}
+			if len(auths) != 1 {
+				t.Fatalf("auth count = %d, want 1", len(auths))
+			}
+			if gotWeight := auths[0].Attributes[coreauth.AttributeWeight]; gotWeight != testCase.want {
+				t.Fatalf("weight = %q, want %q", gotWeight, testCase.want)
+			}
+		})
+	}
+}
+
 func TestFileSynthesizer_Synthesize_OAuthExcludedModelsMerged(t *testing.T) {
 	tempDir := t.TempDir()
 	authData := map[string]any{
@@ -521,7 +691,7 @@ func TestFileSynthesizer_Synthesize_OAuthModelAliases(t *testing.T) {
 	authData := map[string]any{
 		"type":  "codex",
 		"email": "codex@example.com",
-		"model-aliases": []map[string]any{
+		"model_aliases": []map[string]any{
 			{"name": " gpt-5.3-codex-spark ", "alias": " gpt-5.5 "},
 			{"name": "gpt-5.3-codex-spark", "alias": "gpt-5.4", "fork": true},
 			{"name": "gpt-5.3-codex-spark", "alias": "gpt-5.5"},
@@ -557,7 +727,7 @@ func TestFileSynthesizer_Synthesize_OAuthModelAliases(t *testing.T) {
 	}
 }
 
-func TestFileSynthesizer_Synthesize_GeminiMultiProject(t *testing.T) {
+func TestFileSynthesizer_Synthesize_ExpandsGeminiOAuthProjects(t *testing.T) {
 	tempDir := t.TempDir()
 
 	authData := map[string]any{
@@ -584,12 +754,30 @@ func TestFileSynthesizer_Synthesize_GeminiMultiProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Should have 4 auths: 1 primary (disabled) + 3 virtuals
 	if len(auths) != 4 {
-		t.Fatalf("expected 4 auths (1 primary + 3 virtuals), got %d", len(auths))
+		t.Fatalf("expected primary plus three virtual Gemini auths, got %d", len(auths))
 	}
-	if !auths[0].Disabled {
-		t.Error("expected primary to be disabled")
+	primary := auths[0]
+	if primary.Provider != "gemini-cli" || !primary.Disabled || primary.Status != coreauth.StatusDisabled {
+		t.Fatalf("primary auth = %#v, want disabled gemini-cli auth", primary)
+	}
+	if got := primary.Attributes["virtual_children"]; got != "project-a,project-b,project-c" {
+		t.Fatalf("virtual_children = %q, want project list", got)
+	}
+	for i, wantProject := range []string{"project-a", "project-b", "project-c"} {
+		virtual := auths[i+1]
+		if virtual.Provider != "gemini-cli" || virtual.Status != coreauth.StatusActive {
+			t.Fatalf("virtual auth %d = %#v, want active gemini-cli auth", i, virtual)
+		}
+		if got := virtual.Attributes["gemini_virtual_parent"]; got != primary.ID {
+			t.Fatalf("virtual auth %d parent = %q, want %q", i, got, primary.ID)
+		}
+		if got := virtual.Attributes["gemini_virtual_project"]; got != wantProject {
+			t.Fatalf("virtual auth %d project = %q, want %q", i, got, wantProject)
+		}
+		if got := virtual.Attributes["priority"]; got != "10" {
+			t.Fatalf("virtual auth %d priority = %q, want 10", i, got)
+		}
 	}
 }
 

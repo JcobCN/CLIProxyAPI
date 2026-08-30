@@ -6,6 +6,8 @@ package config
 
 // SDKConfig represents the application's configuration, loaded from a YAML file.
 type SDKConfig struct {
+	// ClaudeCode configures Claude Code compatibility behavior.
+	ClaudeCode ClaudeCodeConfig `yaml:"claude-code" json:"claude-code"`
 	// ProxyURL is the URL of an optional proxy server to use for outbound requests.
 	ProxyURL string `yaml:"proxy-url" json:"proxy-url"`
 
@@ -44,7 +46,8 @@ type SDKConfig struct {
 	ForceModelPrefix bool `yaml:"force-model-prefix" json:"force-model-prefix"`
 
 	// RequestLog enables or disables detailed request logging functionality.
-	RequestLog bool `yaml:"request-log" json:"request-log"`
+	RequestLog                bool `yaml:"request-log" json:"request-log"`
+	CodexOptimizeMultiAgentV2 bool `yaml:"-" json:"-"`
 
 	// APIKeys is a list of keys for authenticating clients to this proxy server.
 	APIKeys []string `yaml:"api-keys" json:"api-keys"`
@@ -65,24 +68,6 @@ type SDKConfig struct {
 	// NonStreamKeepAliveInterval controls how often blank lines are emitted for non-streaming responses.
 	// <= 0 disables keep-alives. Value is in seconds.
 	NonStreamKeepAliveInterval int `yaml:"nonstream-keepalive-interval,omitempty" json:"nonstream-keepalive-interval,omitempty"`
-}
-
-// BlockedModelRule rejects model requests matching a client API key and model pattern.
-type BlockedModelRule struct {
-	// APIKeys lists client API keys this rule applies to. Supports wildcard patterns.
-	// When empty, the rule matches any API key.
-	APIKeys []string `yaml:"api-keys,omitempty" json:"api-keys,omitempty"`
-
-	// Models lists model name patterns (wildcards supported, e.g. "gpt-*").
-	Models []string `yaml:"models" json:"models"`
-
-	// StatusCode is the HTTP status code returned for a blocked request.
-	// Defaults to 400 when unset or invalid.
-	StatusCode int `yaml:"status-code,omitempty" json:"status-code,omitempty"`
-
-	// Message is the error message returned to the client.
-	// Defaults to a generic message when empty.
-	Message string `yaml:"message,omitempty" json:"message,omitempty"`
 }
 
 // StreamingConfig holds the streaming behavior configuration.
