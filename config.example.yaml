@@ -59,6 +59,24 @@ api-keys:
 #       - "secret-*"
 #     status-code: 403
 
+# Per-key model access policies. The first matching policy is used; within it,
+# deny-models takes precedence over allow-models, then default-action. Unmatched
+# keys use the global default-action. blocked-models above remains a final deny layer.
+# model-access:
+#   default-action: allow
+#   policies:
+#     - name: "developer"
+#       api-keys:
+#         - "your-api-key-1"
+#       default-action: deny
+#       allow-models:
+#         - "gpt-5-*"
+#         - "gemini-*-flash"
+#       deny-models:
+#         - "gpt-5-pro"
+#       status-code: 403
+#       message: "This model is not available for your API key"
+
 # Enable debug logging
 debug: false
 

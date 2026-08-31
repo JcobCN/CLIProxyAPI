@@ -186,6 +186,7 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Validate raw payload rules and drop invalid entries.
 	cfg.SanitizePayloadRules()
 	cfg.SanitizeBlockedModels()
+	cfg.SanitizeModelAccess()
 
 	// Return the populated configuration struct.
 	return &cfg, nil

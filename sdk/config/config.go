@@ -20,6 +20,8 @@ type PayloadRule = internalconfig.PayloadRule
 type PayloadFilterRule = internalconfig.PayloadFilterRule
 type PayloadModelRule = internalconfig.PayloadModelRule
 type BlockedModelRule = internalconfig.BlockedModelRule
+type ModelAccessConfig = internalconfig.ModelAccessConfig
+type ModelAccessPolicy = internalconfig.ModelAccessPolicy
 
 type GeminiKey = internalconfig.GeminiKey
 type CodexKey = internalconfig.CodexKey

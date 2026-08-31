@@ -58,6 +58,9 @@ type SDKConfig struct {
 	// configured status code (default 400) before any routing or upstream call occurs.
 	BlockedModels []BlockedModelRule `yaml:"blocked-models,omitempty" json:"blocked-models,omitempty"`
 
+	// ModelAccess defines access control policies (allow/deny) for models per API key.
+	ModelAccess ModelAccessConfig `yaml:"model-access,omitempty" json:"model-access,omitempty"`
+
 	// PassthroughHeaders controls whether upstream response headers are forwarded to downstream clients.
 	// Default is false (disabled).
 	PassthroughHeaders bool `yaml:"passthrough-headers" json:"passthrough-headers"`

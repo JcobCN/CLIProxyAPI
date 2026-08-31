@@ -343,3 +343,34 @@ func (h *Handler) DeleteProxyURL(c *gin.Context) {
 	h.cfg.ProxyURL = ""
 	h.persist(c)
 }
+
+// model-access
+func (h *Handler) GetModelAccess(c *gin.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	c.JSON(200, gin.H{"model-access": h.cfg.ModelAccess})
+}
+
+func (h *Handler) PutModelAccess(c *gin.Context) {
+	data, err := c.GetRawData()
+	if err != nil {
+		c.JSON(400, gin.H{"error": "failed to read body"})
+		return
+	}
+	var ma config.ModelAccessConfig
+	if err = json.Unmarshal(data, &ma); err != nil {
+		var wrapper struct {
+			ModelAccess config.ModelAccessConfig `json:"model-access"`
+		}
+		if err2 := json.Unmarshal(data, &wrapper); err2 != nil {
+			c.JSON(400, gin.H{"error": "invalid model-access body"})
+			return
+		}
+		ma = wrapper.ModelAccess
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cfg.ModelAccess = ma
+	h.cfg.SanitizeModelAccess()
+	h.persistLocked(c)
+}

@@ -13,9 +13,10 @@ import (
 )
 
 func (h *BaseAPIHandler) blockedModelError(ctx context.Context, modelName string) *interfaces.ErrorMessage {
-	if h == nil || h.Cfg == nil || len(h.Cfg.BlockedModels) == 0 {
+	if h == nil || h.Cfg == nil {
 		return nil
 	}
+
 	key := ""
 	if gc, ok := ctx.Value("gin").(*gin.Context); ok && gc != nil {
 		if v, exists := gc.Get("userApiKey"); exists {
@@ -24,24 +25,86 @@ func (h *BaseAPIHandler) blockedModelError(ctx context.Context, modelName string
 	}
 	modelName = strings.ToLower(strings.TrimSpace(modelName))
 	base := strings.ToLower(strings.TrimSpace(thinking.ParseSuffix(modelName).ModelName))
-	for _, rule := range h.Cfg.BlockedModels {
-		if len(rule.APIKeys) > 0 && !blockedAny(rule.APIKeys, key) {
-			continue
-		}
-		for _, pattern := range rule.Models {
-			if blockedMatch(pattern, modelName) || (base != "" && blockedMatch(pattern, base)) {
-				code := rule.StatusCode
-				if code == 0 {
-					code = http.StatusBadRequest
+
+	// 1. ModelAccess evaluation
+	if len(h.Cfg.ModelAccess.Policies) > 0 || h.Cfg.ModelAccess.DefaultAction != "" {
+		matchedPolicy := false
+		for _, policy := range h.Cfg.ModelAccess.Policies {
+			if len(policy.APIKeys) > 0 && !blockedAny(policy.APIKeys, key) {
+				continue
+			}
+			matchedPolicy = true
+			// Check DenyModels first (deny > allow)
+			for _, pattern := range policy.DenyModels {
+				if blockedMatch(pattern, modelName) || (base != "" && blockedMatch(pattern, base)) {
+					code := policy.StatusCode
+					if code == 0 {
+						code = http.StatusForbidden
+					}
+					msg := policy.Message
+					if msg == "" {
+						msg = fmt.Sprintf("model %s is denied by model access policy", modelName)
+					}
+					return &interfaces.ErrorMessage{StatusCode: code, Error: errors.New(msg)}
 				}
-				msg := rule.Message
+			}
+			// Check AllowModels
+			allowed := false
+			for _, pattern := range policy.AllowModels {
+				if blockedMatch(pattern, modelName) || (base != "" && blockedMatch(pattern, base)) {
+					allowed = true
+					break
+				}
+			}
+			if allowed {
+				break
+			}
+			// Fallback to policy's DefaultAction
+			action := policy.DefaultAction
+			if action == "" {
+				action = "allow"
+			}
+			if action == "deny" {
+				code := policy.StatusCode
+				if code == 0 {
+					code = http.StatusForbidden
+				}
+				msg := policy.Message
 				if msg == "" {
-					msg = fmt.Sprintf("model %s is blocked for this API key", modelName)
+					msg = fmt.Sprintf("model %s is not allowed by policy", modelName)
 				}
 				return &interfaces.ErrorMessage{StatusCode: code, Error: errors.New(msg)}
 			}
+			break
+		}
+
+		if !matchedPolicy && h.Cfg.ModelAccess.DefaultAction == "deny" {
+			return &interfaces.ErrorMessage{StatusCode: http.StatusForbidden, Error: errors.New(fmt.Sprintf("model %s is denied by default model access policy", modelName))}
 		}
 	}
+
+	// 2. Legacy BlockedModels evaluation (final deny layer)
+	if len(h.Cfg.BlockedModels) > 0 {
+		for _, rule := range h.Cfg.BlockedModels {
+			if len(rule.APIKeys) > 0 && !blockedAny(rule.APIKeys, key) {
+				continue
+			}
+			for _, pattern := range rule.Models {
+				if blockedMatch(pattern, modelName) || (base != "" && blockedMatch(pattern, base)) {
+					code := rule.StatusCode
+					if code == 0 {
+						code = http.StatusBadRequest
+					}
+					msg := rule.Message
+					if msg == "" {
+						msg = fmt.Sprintf("model %s is blocked for this API key", modelName)
+					}
+					return &interfaces.ErrorMessage{StatusCode: code, Error: errors.New(msg)}
+				}
+			}
+		}
+	}
+
 	return nil
 }
 

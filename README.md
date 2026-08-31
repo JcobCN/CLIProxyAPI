@@ -138,6 +138,19 @@ PackyCode provides special discounts for our software users: register using <a h
 
 CLIProxyAPI Guides: [https://help.router-for.me/](https://help.router-for.me/)
 
+### CGO-free static build
+
+Build a statically linked Linux binary without CGO:
+
+~~~bash
+CGO_ENABLED=0 go build -buildvcs=false -ldflags='-s -w' \
+  -o cli-proxy-api ./cmd/server
+~~~
+
+Do not combine CGO_ENABLED=0 with -linkmode external or
+-extldflags "-static": external linking requires CGO and will fail when CGO
+is disabled.
+
 ## Management API
 
 see [MANAGEMENT_API.md](https://help.router-for.me/management/api)

@@ -33,6 +33,23 @@ type BlockedModelRule struct {
 	Message    string   `yaml:"message,omitempty" json:"message,omitempty"`
 }
 
+// ModelAccessPolicy defines allow/deny model access rules for matching API keys.
+type ModelAccessPolicy struct {
+	Name          string   `yaml:"name,omitempty" json:"name,omitempty"`
+	APIKeys       []string `yaml:"api-keys,omitempty" json:"api-keys,omitempty"`
+	DefaultAction string   `yaml:"default-action,omitempty" json:"default-action,omitempty"` // "allow" or "deny"
+	AllowModels   []string `yaml:"allow-models,omitempty" json:"allow-models,omitempty"`
+	DenyModels    []string `yaml:"deny-models,omitempty" json:"deny-models,omitempty"`
+	StatusCode    int      `yaml:"status-code,omitempty" json:"status-code,omitempty"`
+	Message       string   `yaml:"message,omitempty" json:"message,omitempty"`
+}
+
+// ModelAccessConfig configures role-based or key-based model access control.
+type ModelAccessConfig struct {
+	DefaultAction string              `yaml:"default-action,omitempty" json:"default-action,omitempty"` // "allow" or "deny", default is "allow"
+	Policies      []ModelAccessPolicy `yaml:"policies,omitempty" json:"policies,omitempty"`
+}
+
 // PluginsConfig holds dynamic plugin system settings.
 type PluginsConfig struct {
 	// Enabled toggles dynamic plugin loading.

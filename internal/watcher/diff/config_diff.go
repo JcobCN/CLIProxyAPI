@@ -157,6 +157,9 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 	if blockedModelsChanged(oldCfg.BlockedModels, newCfg.BlockedModels) {
 		changes = append(changes, fmt.Sprintf("blocked-models: updated (%d -> %d entries)", len(oldCfg.BlockedModels), len(newCfg.BlockedModels)))
 	}
+	if modelAccessChanged(oldCfg.ModelAccess, newCfg.ModelAccess) {
+		changes = append(changes, fmt.Sprintf("model-access: updated (%d -> %d policies)", len(oldCfg.ModelAccess.Policies), len(newCfg.ModelAccess.Policies)))
+	}
 
 	// API keys (redacted) and counts
 	if len(oldCfg.APIKeys) != len(newCfg.APIKeys) {
@@ -597,4 +600,14 @@ func blockedModelsChanged(old, new []config.BlockedModelRule) bool {
 		return false
 	}
 	return !reflect.DeepEqual(old, new)
+}
+
+func modelAccessChanged(old, new config.ModelAccessConfig) bool {
+	if old.DefaultAction != new.DefaultAction {
+		return true
+	}
+	if len(old.Policies) == 0 && len(new.Policies) == 0 {
+		return false
+	}
+	return !reflect.DeepEqual(old.Policies, new.Policies)
 }

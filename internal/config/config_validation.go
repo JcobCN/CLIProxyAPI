@@ -18,6 +18,38 @@ func (cfg *Config) SanitizePayloadRules() {
 	cfg.Payload.OverrideRaw = sanitizePayloadRawRules(cfg.Payload.OverrideRaw, "override-raw")
 }
 
+// SanitizeModelAccess normalizes and validates model-access config.
+func (cfg *Config) SanitizeModelAccess() {
+	if cfg == nil {
+		return
+	}
+	cfg.ModelAccess.DefaultAction = strings.ToLower(strings.TrimSpace(cfg.ModelAccess.DefaultAction))
+	if cfg.ModelAccess.DefaultAction != "deny" {
+		cfg.ModelAccess.DefaultAction = "allow"
+	}
+	outPolicies := make([]ModelAccessPolicy, 0, len(cfg.ModelAccess.Policies))
+	for i, policy := range cfg.ModelAccess.Policies {
+		policy.Name = strings.TrimSpace(policy.Name)
+		policy.APIKeys = normalizeBlockedStrings(policy.APIKeys)
+		policy.AllowModels = normalizeBlockedStrings(policy.AllowModels)
+		policy.DenyModels = normalizeBlockedStrings(policy.DenyModels)
+		policy.Message = strings.TrimSpace(policy.Message)
+		policy.DefaultAction = strings.ToLower(strings.TrimSpace(policy.DefaultAction))
+		if policy.DefaultAction != "deny" {
+			policy.DefaultAction = "allow"
+		}
+		if len(policy.APIKeys) == 0 && len(policy.AllowModels) == 0 && len(policy.DenyModels) == 0 {
+			log.WithField("policy_index", i+1).Warn("model-access policy dropped: empty policy")
+			continue
+		}
+		if policy.StatusCode < 400 || policy.StatusCode > 599 {
+			policy.StatusCode = 0
+		}
+		outPolicies = append(outPolicies, policy)
+	}
+	cfg.ModelAccess.Policies = outPolicies
+}
+
 // SanitizeBlockedModels normalizes and validates blocked-model rules.
 func (cfg *Config) SanitizeBlockedModels() {
 	if cfg == nil {
