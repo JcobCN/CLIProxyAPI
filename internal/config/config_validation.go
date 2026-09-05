@@ -3,6 +3,8 @@ package config
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"net/url"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -80,6 +82,56 @@ func normalizeBlockedStrings(items []string) []string {
 		}
 	}
 	return out
+}
+
+// ValidateWSProxyUpstream reports whether an upstream URL is usable for
+// WebSocket reverse proxying. Supported schemes are ws, wss, http, and https.
+func ValidateWSProxyUpstream(upstream string) error {
+	parsed, errParse := url.Parse(strings.TrimSpace(upstream))
+	if errParse != nil {
+		return fmt.Errorf("invalid upstream url: %w", errParse)
+	}
+	switch parsed.Scheme {
+	case "ws", "wss", "http", "https":
+	default:
+		return fmt.Errorf("unsupported upstream scheme %q (use ws, wss, http, or https)", parsed.Scheme)
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("upstream host is empty")
+	}
+	return nil
+}
+
+// SanitizeWSProxy normalizes and validates ws-proxy routes, dropping invalid
+// or duplicate entries with a warning.
+func (cfg *Config) SanitizeWSProxy() {
+	if cfg == nil || len(cfg.WSProxy) == 0 {
+		return
+	}
+	out := make([]WSProxyRoute, 0, len(cfg.WSProxy))
+	seen := make(map[string]struct{}, len(cfg.WSProxy))
+	for i, route := range cfg.WSProxy {
+		route.Path = strings.TrimSpace(route.Path)
+		route.Upstream = strings.TrimSpace(route.Upstream)
+		if route.Path == "" || route.Upstream == "" {
+			log.WithField("route_index", i+1).Warn("ws-proxy route dropped: empty path or upstream")
+			continue
+		}
+		if !strings.HasPrefix(route.Path, "/") {
+			route.Path = "/" + route.Path
+		}
+		if errValidate := ValidateWSProxyUpstream(route.Upstream); errValidate != nil {
+			log.WithField("path", route.Path).Warnf("ws-proxy route dropped: %v", errValidate)
+			continue
+		}
+		if _, duplicate := seen[route.Path]; duplicate {
+			log.WithField("path", route.Path).Warn("ws-proxy route dropped: duplicate path")
+			continue
+		}
+		seen[route.Path] = struct{}{}
+		out = append(out, route)
+	}
+	cfg.WSProxy = out
 }
 
 func sanitizePayloadRawRules(rules []PayloadRule, section string) []PayloadRule {

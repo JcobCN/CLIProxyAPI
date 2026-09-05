@@ -11,6 +11,17 @@ tls:
   cert: ""
   key: ""
 
+# WebSocket reverse proxy routes. Each entry forwards WebSocket upgrade requests
+# received on a public path to a local upstream listener, so WebSocket services
+# (for example EasyTier) can share the main server port behind one public
+# endpoint. The public path is rewritten to "/" before forwarding; query
+# parameters are preserved. Upstream changes apply on config reload without a
+# restart, while path changes require a restart. Supported upstream schemes:
+# ws, wss, http, https.
+# ws-proxy:
+#   - path: /easytier
+#     upstream: "ws://127.0.0.1:11011"
+
 # Management API settings
 remote-management:
   # Whether to allow remote (non-localhost) management access.

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"strings"
 	"sync"
@@ -78,6 +79,11 @@ type Server struct {
 	wsRoutes      map[string]struct{}
 	wsAuthChanged func(bool, bool)
 	wsAuthEnabled atomic.Bool
+
+	// wsProxyMu guards wsProxyCache, which pools ReverseProxy instances per
+	// ws-proxy upstream target.
+	wsProxyMu    sync.Mutex
+	wsProxyCache map[string]*httputil.ReverseProxy
 
 	// management handler
 	mgmt *managementHandlers.Handler
@@ -240,6 +246,10 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	}
 	s.refreshPluginManagementRoutes()
 	engine.NoRoute(s.pluginManagementNoRoute)
+
+	// Register ws-proxy routes last so conflicts with all other routes
+	// (including management and plugin routes) are detected before registration.
+	s.registerWSProxyRoutes()
 
 	if optionState.keepAliveEnabled {
 		s.enableKeepAlive(optionState.keepAliveTimeout, optionState.keepAliveOnTimeout)

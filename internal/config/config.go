@@ -16,6 +16,10 @@ type Config struct {
 	// TLS config controls HTTPS server settings.
 	TLS TLSConfig `yaml:"tls" json:"tls"`
 
+	// WSProxy maps public WebSocket paths to local upstream listeners, allowing
+	// WebSocket services (for example EasyTier) to share the main server port.
+	WSProxy WSProxyConfig `yaml:"ws-proxy" json:"ws-proxy"`
+
 	// Home config is runtime-only and is populated from -home-jwt.
 	Home HomeConfig `yaml:"-" json:"-"`
 

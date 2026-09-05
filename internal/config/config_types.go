@@ -220,6 +220,22 @@ type TLSConfig struct {
 	Key string `yaml:"key" json:"key"`
 }
 
+// WSProxyConfig is a list of WebSocket reverse proxy routes that share the
+// main server port. Each route forwards WebSocket upgrade requests received
+// on a public path to a local upstream listener (for example an EasyTier
+// ws:// listener bound to 127.0.0.1).
+type WSProxyConfig []WSProxyRoute
+
+// WSProxyRoute maps one public WebSocket path to an upstream listener.
+type WSProxyRoute struct {
+	// Path is the public path served by the main port. It must not collide
+	// with existing API routes.
+	Path string `yaml:"path" json:"path"`
+	// Upstream is the backend WebSocket listener URL. Supported schemes are
+	// ws, wss, http, and https.
+	Upstream string `yaml:"upstream" json:"upstream"`
+}
+
 // PprofConfig holds pprof HTTP server settings.
 type PprofConfig struct {
 	// Enable toggles the pprof HTTP debug server.

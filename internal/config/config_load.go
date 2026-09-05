@@ -188,6 +188,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	cfg.SanitizeBlockedModels()
 	cfg.SanitizeModelAccess()
 
+	// Normalize and validate WebSocket reverse proxy routes.
+	cfg.SanitizeWSProxy()
+
 	// Return the populated configuration struct.
 	return &cfg, nil
 }
