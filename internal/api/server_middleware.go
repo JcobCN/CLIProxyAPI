@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/activetracker"
 	codexlive "github.com/router-for-me/CLIProxyAPI/v7/internal/client/codex/live"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/home"
@@ -124,6 +125,21 @@ func isExampleAPIKeySafeModeProxyPath(path string) bool {
 	}
 }
 
+// activateTracking records the authenticated principal in the active request
+// tracker and returns a cleanup func to be deferred for the request lifetime.
+func activateTracking(c *gin.Context, principal string) func() {
+	requestID := logging.GetRequestID(c.Request.Context())
+	kind := "http"
+	if strings.EqualFold(c.GetHeader("Upgrade"), "websocket") {
+		kind = "websocket"
+	}
+	entry, leave := activetracker.Default.Enter(principal, "", kind, requestID)
+	if entry != nil {
+		c.Set(activetracker.GinContextKey, entry)
+	}
+	return leave
+}
+
 // corsMiddleware returns a Gin middleware handler that adds CORS headers
 // to every response, allowing cross-origin requests.
 //
@@ -170,6 +186,9 @@ func accessAuthMiddleware(manager *sdkaccess.Manager, realtimeError bool) gin.Ha
 				c.Set("accessProvider", result.Provider)
 				if len(result.Metadata) > 0 {
 					c.Set("accessMetadata", result.Metadata)
+				}
+				if principal := strings.TrimSpace(result.Principal); principal != "" {
+					defer activateTracking(c, principal)()
 				}
 			}
 			c.Next()
@@ -228,6 +247,9 @@ func realtimeAuthMiddleware(manager *sdkaccess.Manager, handler *codexlive.Handl
 		c.Set("accessProvider", provider)
 		c.Set(codexlive.ClientSecretSessionContextKey, authorization.Session)
 		c.Set(codexlive.ClientSecretPrincipalContextKey, authorization.Principal)
+		if trimmed := strings.TrimSpace(principal); trimmed != "" {
+			defer activateTracking(c, trimmed)()
+		}
 		c.Next()
 	}
 }
