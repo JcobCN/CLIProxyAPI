@@ -374,3 +374,65 @@ func (h *Handler) PutModelAccess(c *gin.Context) {
 	h.cfg.SanitizeModelAccess()
 	h.persistLocked(c)
 }
+
+// GetPermissions returns the permission sections without exposing unrelated
+// configuration such as upstream credentials.
+func (h *Handler) GetPermissions(c *gin.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	c.JSON(http.StatusOK, gin.H{
+		"model-access":   h.cfg.ModelAccess,
+		"blocked-models": h.cfg.BlockedModels,
+	})
+}
+
+// PutPermissions updates model-access and blocked-models together. It is the
+// narrow Management API used by external user-management services; callers do
+// not need to round-trip the complete config.yaml.
+type permissionsPayload struct {
+	ModelAccess   *config.ModelAccessConfig  `json:"model-access"`
+	BlockedModels *[]config.BlockedModelRule `json:"blocked-models"`
+}
+
+// PutPermissions updates only the permission fields present in the request.
+// Omitting api-keys is intentional: the admin panel can edit model policies
+// without accidentally replacing the gateway's authentication keys.
+func (h *Handler) PutPermissions(c *gin.Context) {
+	data, err := c.GetRawData()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read body"})
+		return
+	}
+	var body struct {
+		ModelAccess   *config.ModelAccessConfig  `json:"model-access"`
+		BlockedModels *[]config.BlockedModelRule `json:"blocked-models"`
+		Permissions   *permissionsPayload        `json:"permissions"`
+	}
+	if err := json.Unmarshal(data, &body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid permissions body"})
+		return
+	}
+	payload := permissionsPayload{
+		ModelAccess:   body.ModelAccess,
+		BlockedModels: body.BlockedModels,
+	}
+	if body.Permissions != nil {
+		payload = *body.Permissions
+	}
+	if payload.ModelAccess == nil && payload.BlockedModels == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one permission field is required"})
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if payload.ModelAccess != nil {
+		h.cfg.ModelAccess = *payload.ModelAccess
+		h.cfg.SanitizeModelAccess()
+	}
+	if payload.BlockedModels != nil {
+		h.cfg.BlockedModels = append([]config.BlockedModelRule(nil), (*payload.BlockedModels)...)
+		h.cfg.SanitizeBlockedModels()
+	}
+	h.persistLocked(c)
+}
