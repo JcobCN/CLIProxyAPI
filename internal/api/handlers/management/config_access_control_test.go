@@ -63,6 +63,62 @@ func TestPermissionsEndpointsPreserveUnrelatedConfig(t *testing.T) {
 	}
 }
 
+func TestPermissionsEndpointsSupportMaxContextLength(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{}
+	h := &Handler{cfg: cfg, configFilePath: writeTestConfigFile(t)}
+
+	putBody := `{
+		"model-access": {
+			"default-action": "allow",
+			"max-context-length": 65536,
+			"policies": [
+				{
+					"name": "p1",
+					"api-keys": ["key1"],
+					"max-context-length": 32768,
+					"allow-models": ["gpt-4o"]
+				}
+			]
+		}
+	}`
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPut, "/v0/management/permissions", bytes.NewBufferString(putBody))
+	h.PutPermissions(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PutPermissions returned %d: %s", w.Code, w.Body.String())
+	}
+
+	if h.cfg.ModelAccess.MaxContextLength != 65536 {
+		t.Fatalf("expected ModelAccess.MaxContextLength = 65536, got %d", h.cfg.ModelAccess.MaxContextLength)
+	}
+	if len(h.cfg.ModelAccess.Policies) != 1 || h.cfg.ModelAccess.Policies[0].MaxContextLength != 32768 {
+		t.Fatalf("expected policy MaxContextLength = 32768, got %d", h.cfg.ModelAccess.Policies[0].MaxContextLength)
+	}
+
+	// Now verify GET /v0/management/permissions
+	wGet := httptest.NewRecorder()
+	cGet, _ := gin.CreateTestContext(wGet)
+	h.GetPermissions(cGet)
+	if wGet.Code != http.StatusOK {
+		t.Fatalf("GetPermissions returned %d: %s", wGet.Code, wGet.Body.String())
+	}
+	var got struct {
+		ModelAccess config.ModelAccessConfig `json:"model-access"`
+	}
+	if err := json.Unmarshal(wGet.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode GET permissions: %v", err)
+	}
+	if got.ModelAccess.MaxContextLength != 65536 {
+		t.Fatalf("GET returned MaxContextLength = %d, want 65536", got.ModelAccess.MaxContextLength)
+	}
+	if len(got.ModelAccess.Policies) != 1 || got.ModelAccess.Policies[0].MaxContextLength != 32768 {
+		t.Fatalf("GET returned policy MaxContextLength = %d, want 32768", got.ModelAccess.Policies[0].MaxContextLength)
+	}
+}
+
 func TestAccessControlEndpointRequiresBothFields(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := &Handler{cfg: &config.Config{}, configFilePath: writeTestConfigFile(t)}

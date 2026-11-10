@@ -44,6 +44,9 @@ func (h *BaseAPIHandler) executeWithAuthManagerFormats(ctx context.Context, entr
 	if errMsg := h.blockedModelError(ctx, modelName); errMsg != nil {
 		return nil, nil, errMsg
 	}
+	if errMsg := h.validateContextLength(ctx, modelName, rawJSON); errMsg != nil {
+		return nil, nil, errMsg
+	}
 	originalRequestedModel := modelName
 	routeDecision := h.applyModelRouter(ctx, entryProtocol, modelName, rawJSON, false, execOptions)
 	responseProtocol := modelExecutionResponseProtocol(entryProtocol, exitProtocol)

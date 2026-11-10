@@ -40,7 +40,10 @@ func (cfg *Config) SanitizeModelAccess() {
 		if policy.DefaultAction != "deny" {
 			policy.DefaultAction = "allow"
 		}
-		if len(policy.APIKeys) == 0 && len(policy.AllowModels) == 0 && len(policy.DenyModels) == 0 {
+		if policy.MaxContextLength < 0 {
+			policy.MaxContextLength = 0
+		}
+		if len(policy.APIKeys) == 0 && len(policy.AllowModels) == 0 && len(policy.DenyModels) == 0 && policy.MaxContextLength == 0 {
 			log.WithField("policy_index", i+1).Warn("model-access policy dropped: empty policy")
 			continue
 		}

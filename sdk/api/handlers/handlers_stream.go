@@ -296,6 +296,12 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 		close(errChan)
 		return nil, nil, errChan
 	}
+	if errMsg := h.validateContextLength(ctx, modelName, rawJSON); errMsg != nil {
+		errChan := make(chan *interfaces.ErrorMessage, 1)
+		errChan <- errMsg
+		close(errChan)
+		return nil, nil, errChan
+	}
 	originalRequestedModel := modelName
 	routeDecision, preparedRoute := preparedModelRouteFromContext(ctx, execOptions.SkipRouterPluginID)
 	if !preparedRoute {

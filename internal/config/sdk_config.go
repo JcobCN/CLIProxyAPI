@@ -61,6 +61,10 @@ type SDKConfig struct {
 	// ModelAccess defines access control policies (allow/deny) for models per API key.
 	ModelAccess ModelAccessConfig `yaml:"model-access,omitempty" json:"model-access,omitempty"`
 
+	// MaxContextLength sets a global maximum context length (in estimated tokens) for incoming requests.
+	// Requests exceeding this limit are rejected before upstream forwarding.
+	MaxContextLength int `yaml:"max-context-length,omitempty" json:"max-context-length,omitempty"`
+
 	// PassthroughHeaders controls whether upstream response headers are forwarded to downstream clients.
 	// Default is false (disabled).
 	PassthroughHeaders bool `yaml:"passthrough-headers" json:"passthrough-headers"`

@@ -160,6 +160,9 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 	if modelAccessChanged(oldCfg.ModelAccess, newCfg.ModelAccess) {
 		changes = append(changes, fmt.Sprintf("model-access: updated (%d -> %d policies)", len(oldCfg.ModelAccess.Policies), len(newCfg.ModelAccess.Policies)))
 	}
+	if oldCfg.MaxContextLength != newCfg.MaxContextLength {
+		changes = append(changes, fmt.Sprintf("max-context-length: %d -> %d", oldCfg.MaxContextLength, newCfg.MaxContextLength))
+	}
 
 	// API keys (redacted) and counts
 	if len(oldCfg.APIKeys) != len(newCfg.APIKeys) {
@@ -604,6 +607,9 @@ func blockedModelsChanged(old, new []config.BlockedModelRule) bool {
 
 func modelAccessChanged(old, new config.ModelAccessConfig) bool {
 	if old.DefaultAction != new.DefaultAction {
+		return true
+	}
+	if old.MaxContextLength != new.MaxContextLength {
 		return true
 	}
 	if len(old.Policies) == 0 && len(new.Policies) == 0 {
