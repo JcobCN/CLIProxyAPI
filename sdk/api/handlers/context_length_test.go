@@ -34,8 +34,8 @@ func TestEstimateRequestTokens(t *testing.T) {
 		{
 			name:    "openai chinese message",
 			payload: `{"model":"gpt-4o","messages":[{"role":"user","content":"你好世界，这是一个上下文测试"}]}`,
-			minWant: 14,
-			maxWant: 16,
+			minWant: 10,
+			maxWant: 10,
 		},
 		{
 			name: "openai multipart with image",
@@ -175,8 +175,8 @@ func TestValidateContextLength(t *testing.T) {
 			t.Fatalf("expected pass for 37 < 50 tokens, got: %v", errMsg)
 		}
 
-		// Very long payload ~74 tokens
-		payloadLong := []byte(`{"model":"limited-model","messages":[{"role":"user","content":"这是一段中文测试文本，用于测试上下文限制，长度刚好在二十几个Token左右。这是一段中文测试文本，用于测试上下文限制，长度刚好在二十几个Token左右。"}]}`)
+		// Very long payload, well above 50 tokens
+		payloadLong := []byte(`{"model":"limited-model","messages":[{"role":"user","content":"这是一段中文测试文本，用于测试上下文限制，长度刚好在二十几个Token左右。这是一段中文测试文本，用于测试上下文限制，长度刚好在二十几个Token左右。这是一段中文测试文本，用于测试上下文限制，长度刚好在二十几个Token左右。"}]}`)
 		errMsg := h.validateContextLength(ctx, "limited-model", payloadLong)
 		if errMsg == nil {
 			t.Fatal("expected error for long payload exceeding model limit, got nil")
@@ -189,7 +189,7 @@ func TestValidateContextLength(t *testing.T) {
 	t.Run("global limit takes effect when neither policy nor model sets one", func(t *testing.T) {
 		ctx := newContextWithKey("sk-other")
 		// Global limit is 100. Let's make a ~120 token payload.
-		repeatText := strings.Repeat("这是一段用于测试全局超限的中文文本。", 8) // 18 * 8 = 144 tokens
+		repeatText := strings.Repeat("这是一段用于测试全局超限的中文文本。", 10) // 18 * 10 chars ≈ 120 tokens
 		payloadHuge := []byte(`{"model":"unlimited-model","messages":[{"role":"user","content":"` + repeatText + `"}]}`)
 		errMsg := h.validateContextLength(ctx, "unlimited-model", payloadHuge)
 		if errMsg == nil {
@@ -234,4 +234,166 @@ func TestValidateContextLength(t *testing.T) {
 			t.Fatalf("expected 400, got %d", errMsg.StatusCode)
 		}
 	})
+}
+
+func TestEstimateRequestTokensCountsNestedContent(t *testing.T) {
+	bigText := strings.Repeat("a", 7000) // ~2000 ASCII tokens
+
+	tests := []struct {
+		name    string
+		payload string
+		minWant int
+		maxWant int
+	}{
+		{
+			name:    "claude tool_result string content",
+			payload: `{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"` + bigText + `"}]}]}`,
+			minWant: 2000,
+			maxWant: 2100,
+		},
+		{
+			name:    "claude tool_result block content",
+			payload: `{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"text","text":"` + bigText + `"}]}]}]}`,
+			minWant: 2000,
+			maxWant: 2100,
+		},
+		{
+			name:    "claude tool_use input",
+			payload: `{"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Write","input":{"content":"` + bigText + `"}}]}]}`,
+			minWant: 2000,
+			maxWant: 2100,
+		},
+		{
+			name:    "claude thinking block",
+			payload: `{"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"` + bigText + `","signature":"sig"}]}]}`,
+			minWant: 2000,
+			maxWant: 2100,
+		},
+		{
+			name:    "openai responses input array",
+			payload: `{"input":[{"role":"user","content":[{"type":"input_text","text":"` + bigText + `"}]}]}`,
+			minWant: 2000,
+			maxWant: 2100,
+		},
+		{
+			name:    "gemini functionResponse",
+			payload: `{"contents":[{"parts":[{"functionResponse":{"name":"read","response":{"content":"` + bigText + `"}}}]}]}`,
+			minWant: 2000,
+			maxWant: 2100,
+		},
+		{
+			name:    "openai tool call arguments",
+			payload: `{"messages":[{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"write","arguments":"{\"content\":\"` + bigText + `\"}"}}]}]}`,
+			minWant: 2000,
+			maxWant: 2100,
+		},
+		{
+			name:    "media payload uses flat estimate",
+			payload: `{"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"` + bigText + `"}}]}]}`,
+			minWant: 1200,
+			maxWant: 1200,
+		},
+		{
+			name:    "openai reasoning_content is counted",
+			payload: `{"messages":[{"role":"assistant","reasoning_content":"` + bigText + `","content":"ok"}]}`,
+			minWant: 2000,
+			maxWant: 2100,
+		},
+		{
+			name:    "openai reasoning field is counted",
+			payload: `{"messages":[{"role":"assistant","reasoning":"` + bigText + `","content":"ok"}]}`,
+			minWant: 2000,
+			maxWant: 2100,
+		},
+		{
+			name:    "cjk uses about 1.6 characters per token",
+			payload: `{"messages":[{"role":"user","content":"` + strings.Repeat("中", 160) + `"}]}`,
+			minWant: 100,
+			maxWant: 100,
+		},
+		{
+			name:    "mixed cjk and ascii buckets are summed",
+			payload: `{"messages":[{"role":"user","content":"` + strings.Repeat("中", 160) + strings.Repeat("a", 350) + `"}]}`,
+			minWant: 200,
+			maxWant: 200,
+		},
+		{
+			name:    "many small strings are summed before rounding",
+			payload: `{"messages":[{"role":"user","content":[{"type":"text","text":"` + strings.Repeat("a", 3500) + `"},{"type":"text","text":"` + strings.Repeat("a", 3500) + `"}]}]}`,
+			minWant: 2000,
+			maxWant: 2000,
+		},
+		{
+			name:    "structural fields are ignored",
+			payload: `{"model":"gpt-4o","stream":true,"metadata":{"user_id":"u-1"},"messages":[{"role":"user","content":"hi"}]}`,
+			minWant: 1,
+			maxWant: 2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := EstimateRequestTokens([]byte(tc.payload))
+			if got < tc.minWant || got > tc.maxWant {
+				t.Fatalf("EstimateRequestTokens() = %d, want between %d and %d", got, tc.minWant, tc.maxWant)
+			}
+		})
+	}
+}
+
+func TestEstimateRequestTokensEdgeCases(t *testing.T) {
+	longText := strings.Repeat("a", 7000) // ~2000 ASCII tokens
+
+	tests := []struct {
+		name    string
+		payload string
+		minWant int
+		maxWant int
+	}{
+		{
+			name:    "non-json payload falls back to raw text",
+			payload: longText,
+			minWant: 2000,
+			maxWant: 2100,
+		},
+		{
+			name:    "completions token id prompt counts per number",
+			payload: `{"prompt":[1,2,3,4,5,6,7,8,9,10]}`,
+			minWant: 10,
+			maxWant: 10,
+		},
+		{
+			name:    "nested completions token id prompt counts per number",
+			payload: `{"prompt":[[1,2,3,4,5],[6,7,8,9,10]]}`,
+			minWant: 10,
+			maxWant: 10,
+		},
+		{
+			name:    "tool schema property named image_url is not flattened",
+			payload: `{"tools":[{"type":"function","function":{"name":"img","parameters":{"type":"object","properties":{"image_url":{"type":"string","description":"` + longText + `"}}}}}]}`,
+			minWant: 2000,
+			maxWant: 2100,
+		},
+		{
+			name:    "claude text document source is counted",
+			payload: `{"messages":[{"role":"user","content":[{"type":"document","source":{"type":"text","media_type":"text/plain","data":"` + longText + `"}}]}]}`,
+			minWant: 3200,
+			maxWant: 3300,
+		},
+		{
+			name:    "claude base64 document source uses flat estimate",
+			payload: `{"messages":[{"role":"user","content":[{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"` + longText + `"}}]}]}`,
+			minWant: 1200,
+			maxWant: 1200,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := EstimateRequestTokens([]byte(tc.payload))
+			if got < tc.minWant || got > tc.maxWant {
+				t.Fatalf("EstimateRequestTokens() = %d, want between %d and %d", got, tc.minWant, tc.maxWant)
+			}
+		})
+	}
 }
