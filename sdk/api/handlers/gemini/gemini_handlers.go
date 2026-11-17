@@ -49,6 +49,9 @@ func (h *GeminiAPIHandler) Models() []map[string]any {
 // It returns a JSON response containing available Gemini models and their specifications.
 func (h *GeminiAPIHandler) GeminiModels(c *gin.Context) {
 	rawModels := h.Models()
+	if h.BaseAPIHandler != nil {
+		rawModels = h.FilterAllowedModels(c, rawModels)
+	}
 	normalizedModels := make([]map[string]any, 0, len(rawModels))
 	defaultMethods := []string{"generateContent"}
 	for _, model := range rawModels {
@@ -108,6 +111,16 @@ func (h *GeminiAPIHandler) GeminiGetHandler(c *gin.Context) {
 	}
 
 	if targetModel != nil {
+		if h.BaseAPIHandler != nil && !h.IsModelAllowed(c, action) {
+			c.JSON(http.StatusNotFound, handlers.ErrorResponse{
+				Error: handlers.ErrorDetail{
+					Message: "Not Found",
+					Type:    "not_found",
+				},
+			})
+			return
+		}
+
 		// Ensure the name has 'models/' prefix in the output if it's a Gemini model
 		if name, ok := targetModel["name"].(string); ok && name != "" && !strings.HasPrefix(name, "models/") {
 			targetModel["name"] = "models/" + name

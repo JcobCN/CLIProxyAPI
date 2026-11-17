@@ -84,3 +84,54 @@ func TestModelAccessEvaluation(t *testing.T) {
 		t.Fatalf("expected error for unlisted key with global default-action: deny")
 	}
 }
+
+func TestFilterAllowedModels(t *testing.T) {
+	cfg := &sdkconfig.SDKConfig{
+		ModelAccess: sdkconfig.ModelAccessConfig{
+			DefaultAction: "deny",
+			Policies: []sdkconfig.ModelAccessPolicy{
+				{
+					Name:          "tier-free",
+					APIKeys:       []string{"sk-free"},
+					DefaultAction: "deny",
+					AllowModels:   []string{"gemini-*-flash", "gpt-4o-mini"},
+					DenyModels:    []string{"gpt-4o-pro"},
+				},
+			},
+		},
+	}
+	h := &BaseAPIHandler{Cfg: cfg}
+
+	models := []map[string]any{
+		{"id": "gpt-4o-mini"},
+		{"id": "gpt-4o-pro"},
+		{"id": "gemini-1.5-flash"},
+		{"id": "claude-3-opus"},
+	}
+
+	// 1. sk-free: should only see gpt-4o-mini and gemini-1.5-flash
+	ctxFree := &gin.Context{}
+	ctxFree.Set("userApiKey", "sk-free")
+	filtered := h.FilterAllowedModels(ctxFree, models)
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 models for sk-free, got %d", len(filtered))
+	}
+	if filtered[0]["id"] != "gpt-4o-mini" || filtered[1]["id"] != "gemini-1.5-flash" {
+		t.Fatalf("unexpected filtered models: %#v", filtered)
+	}
+
+	// 2. unlisted key sk-other: global default-action is deny -> 0 models
+	ctxOther := &gin.Context{}
+	ctxOther.Set("userApiKey", "sk-other")
+	filteredOther := h.FilterAllowedModels(ctxOther, models)
+	if len(filteredOther) != 0 {
+		t.Fatalf("expected 0 models for sk-other with default-action: deny, got %d", len(filteredOther))
+	}
+
+	// 3. no model-access configured: all models returned untouched
+	hEmpty := &BaseAPIHandler{Cfg: &sdkconfig.SDKConfig{}}
+	allModels := hEmpty.FilterAllowedModels(ctxFree, models)
+	if len(allModels) != len(models) {
+		t.Fatalf("expected %d models when no policy configured, got %d", len(models), len(allModels))
+	}
+}

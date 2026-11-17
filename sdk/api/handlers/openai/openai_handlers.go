@@ -61,12 +61,15 @@ func (h *OpenAIAPIHandler) Models() []map[string]any {
 func (h *OpenAIAPIHandler) OpenAIModels(c *gin.Context) {
 	if _, ok := c.Request.URL.Query()["client_version"]; ok {
 		clientVersion := c.Query("client_version")
-		c.JSON(http.StatusOK, h.codexClientModelsResponse(clientVersion))
+		c.JSON(http.StatusOK, h.codexClientModelsResponseWithContext(c, clientVersion))
 		return
 	}
 
 	// Get all available models
 	allModels := h.Models()
+	if h.BaseAPIHandler != nil {
+		allModels = h.FilterAllowedModels(c, allModels)
+	}
 
 	// Filter to only include the 4 required fields: id, object, created, owned_by
 	filteredModels := make([]map[string]any, len(allModels))

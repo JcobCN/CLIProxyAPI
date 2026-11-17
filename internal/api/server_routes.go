@@ -649,6 +649,15 @@ func (s *Server) handleGrokModels(c *gin.Context) {
 	} else {
 		models = grokModelsFromRegistryInfos(registry.GetGlobalRegistry().GetAvailableModelInfos())
 	}
+	if s != nil && s.handlers != nil {
+		filteredModels := make([]grokbuild.ModelInfo, 0, len(models))
+		for _, m := range models {
+			if s.handlers.IsModelAllowed(c, m.ID) {
+				filteredModels = append(filteredModels, m)
+			}
+		}
+		models = filteredModels
+	}
 	c.JSON(http.StatusOK, grokbuild.BuildResponse(models))
 }
 
@@ -658,6 +667,15 @@ func (s *Server) handleHomeCodexClientModels(c *gin.Context, clientVersion strin
 	entries, ok := s.loadHomeModelEntries(c)
 	if !ok {
 		return
+	}
+	if s != nil && s.handlers != nil {
+		filteredEntries := make([]homeModelEntry, 0, len(entries))
+		for _, entry := range entries {
+			if s.handlers.IsModelAllowed(c, entry.id) {
+				filteredEntries = append(filteredEntries, entry)
+			}
+		}
+		entries = filteredEntries
 	}
 
 	models := make([]map[string]any, 0, len(entries))
@@ -720,6 +738,15 @@ func (s *Server) handleHomeModels(c *gin.Context) {
 	entries, ok := s.loadHomeModelEntries(c)
 	if !ok {
 		return
+	}
+	if s != nil && s.handlers != nil {
+		filteredEntries := make([]homeModelEntry, 0, len(entries))
+		for _, entry := range entries {
+			if s.handlers.IsModelAllowed(c, entry.id) {
+				filteredEntries = append(filteredEntries, entry)
+			}
+		}
+		entries = filteredEntries
 	}
 
 	isClaude := isAnthropicModelsRequest(c)
@@ -791,6 +818,15 @@ func (s *Server) handleHomeGeminiModels(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if s != nil && s.handlers != nil {
+		filteredEntries := make([]homeModelEntry, 0, len(entries))
+		for _, entry := range entries {
+			if s.handlers.IsModelAllowed(c, entry.id) {
+				filteredEntries = append(filteredEntries, entry)
+			}
+		}
+		entries = filteredEntries
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"models": formatHomeGeminiModels(entries),
@@ -807,6 +843,9 @@ func (s *Server) handleHomeGeminiModel(c *gin.Context) {
 	action = strings.TrimSpace(action)
 	for _, entry := range entries {
 		if homeGeminiModelMatches(entry, action) {
+			if s != nil && s.handlers != nil && !s.handlers.IsModelAllowed(c, entry.id) {
+				break
+			}
 			c.JSON(http.StatusOK, formatHomeGeminiModel(entry))
 			return
 		}

@@ -81,6 +81,65 @@ func TestClaudeModelsResponseDisablesModelListCloaking(t *testing.T) {
 	t.Fatalf("uncloaked model %q not found in response", modelID)
 }
 
+func TestClaudeModelsResponseFiltersByModelAccess(t *testing.T) {
+	const clientID = "claude-access-test-client"
+	modelRegistry := registry.GetGlobalRegistry()
+	modelRegistry.RegisterClient(clientID, "claude", []*registry.ModelInfo{
+		{ID: "claude-access-allowed", Object: "model", OwnedBy: "test"},
+		{ID: "claude-access-denied", Object: "model", OwnedBy: "test"},
+	})
+	t.Cleanup(func() {
+		modelRegistry.UnregisterClient(clientID)
+	})
+
+	cfg := &sdkconfig.SDKConfig{
+		ModelAccess: sdkconfig.ModelAccessConfig{
+			DefaultAction: "deny",
+			Policies: []sdkconfig.ModelAccessPolicy{
+				{
+					Name:          "claude-dev",
+					APIKeys:       []string{"sk-claude-key"},
+					DefaultAction: "deny",
+					AllowModels:   []string{"claude-access-allowed"},
+				},
+			},
+		},
+	}
+	baseHandler := handlers.NewBaseAPIHandlers(cfg, nil)
+	baseHandler.Cfg.ClaudeCode.DisableCloakingModelList = true
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set("userApiKey", "sk-claude-key")
+	NewClaudeCodeAPIHandler(baseHandler).ClaudeModels(ctx)
+
+	var response struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	hasAllowed := false
+	hasDenied := false
+	for _, m := range response.Data {
+		if m.ID == "claude-access-allowed" {
+			hasAllowed = true
+		}
+		if m.ID == "claude-access-denied" {
+			hasDenied = true
+		}
+	}
+	if !hasAllowed {
+		t.Fatalf("expected claude-access-allowed to be present")
+	}
+	if hasDenied {
+		t.Fatalf("expected claude-access-denied to be filtered out")
+	}
+}
+
 func TestRewriteClaudeDDModelInBody(t *testing.T) {
 	tests := []struct {
 		name      string

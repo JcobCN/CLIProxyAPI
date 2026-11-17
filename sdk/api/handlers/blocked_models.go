@@ -17,12 +17,7 @@ func (h *BaseAPIHandler) blockedModelError(ctx context.Context, modelName string
 		return nil
 	}
 
-	key := ""
-	if gc, ok := ctx.Value("gin").(*gin.Context); ok && gc != nil {
-		if v, exists := gc.Get("userApiKey"); exists {
-			key, _ = v.(string)
-		}
-	}
+	key := userAPIKeyFromContext(ctx)
 	modelName = strings.ToLower(strings.TrimSpace(modelName))
 	base := strings.ToLower(strings.TrimSpace(thinking.ParseSuffix(modelName).ModelName))
 
@@ -125,13 +120,50 @@ func userAPIKeyFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}
+	if gc, ok := ctx.(*gin.Context); ok && gc != nil {
+		if v, exists := gc.Get("userApiKey"); exists {
+			if key, ok := v.(string); ok {
+				return strings.ToLower(strings.TrimSpace(key))
+			}
+		}
+	}
 	if gc, ok := ctx.Value("gin").(*gin.Context); ok && gc != nil {
 		if v, exists := gc.Get("userApiKey"); exists {
-			key, _ := v.(string)
-			return strings.ToLower(strings.TrimSpace(key))
+			if key, ok := v.(string); ok {
+				return strings.ToLower(strings.TrimSpace(key))
+			}
 		}
 	}
 	return ""
+}
+
+// IsModelAllowed returns true if the specified model is allowed for the caller in context.
+func (h *BaseAPIHandler) IsModelAllowed(ctx context.Context, modelName string) bool {
+	return h.blockedModelError(ctx, modelName) == nil
+}
+
+// FilterAllowedModels filters out models that are not allowed for the caller in context.
+func (h *BaseAPIHandler) FilterAllowedModels(ctx context.Context, models []map[string]any) []map[string]any {
+	if h == nil || h.Cfg == nil || len(models) == 0 {
+		return models
+	}
+	if len(h.Cfg.ModelAccess.Policies) == 0 && h.Cfg.ModelAccess.DefaultAction == "" && len(h.Cfg.BlockedModels) == 0 {
+		return models
+	}
+	filtered := make([]map[string]any, 0, len(models))
+	for _, m := range models {
+		modelID := ""
+		if id, ok := m["id"].(string); ok && id != "" {
+			modelID = id
+		} else if name, ok := m["name"].(string); ok && name != "" {
+			modelID = strings.TrimPrefix(name, "models/")
+		}
+		if modelID != "" && !h.IsModelAllowed(ctx, modelID) {
+			continue
+		}
+		filtered = append(filtered, m)
+	}
+	return filtered
 }
 func blockedMatch(pattern, value string) bool {
 	if strings.TrimSpace(pattern) == "" {
